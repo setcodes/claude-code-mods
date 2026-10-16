@@ -4,6 +4,7 @@
   "description": "Usage-limit bar above the prompt: 5-hour and weekly limits with time to reset, resume after the limit resets, and a stay-awake toggle on macOS",
   "author": {
     "name": "Egor Maximov",
+    "email": "support@setcode.ru",
     "url": "https://github.com/setcodes"
   },
   "homepage": "https://github.com/setcodes/claude-code-mods/tree/main/limit-watch",
