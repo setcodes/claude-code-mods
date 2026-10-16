@@ -276,6 +276,11 @@ function cellWidth(text: string): number {
   return width
 }
 
+// Десктоп, VS Code и телефон рисуют пропорциональным шрифтом: текст там занимает примерно
+// три четверти ячейки на символ (замерено: полоса в 94 ячейки вмещает полную раскладку, в ~70 — нет).
+// В терминале символ — ровно ячейка.
+const PROPORTIONAL_SCALE = 0.75
+
 type LimitItem = { key: string; label: string; value: string; color: Tone; hint?: string }
 
 // Как подробно показывать лимиты: всё; без «сброс …»; только значок и проценты.
@@ -468,10 +473,12 @@ export const register: Register = (on, options) => {
       (mac ? 1 + buttonWidth(SLEEP_ICON) : 0) +
       1 +
       cellWidth(s.hide)
+    const scale = e.surface === 'terminal' ? 1 : PROPORTIONAL_SCALE
     const room = e.props.bodyColumns
-    const inline = DETAILS.find(d => limitsWidth(items, note, d, hasIcons) + 2 + actionsWidth <= room)
+    const fits = (width: number) => width * scale <= room
+    const inline = DETAILS.find(d => fits(limitsWidth(items, note, d, hasIcons) + 2 + actionsWidth))
     const isStacked = inline === undefined
-    const detail = inline ?? DETAILS.find(d => limitsWidth(items, note, d, hasIcons) <= room) ?? 'compact'
+    const detail = inline ?? DETAILS.find(d => fits(limitsWidth(items, note, d, hasIcons))) ?? 'compact'
 
     const limitsRow = (
       <Box flexDirection="row" alignItems="center" flexWrap={isStacked ? 'wrap' : 'nowrap'} columnGap={3}>

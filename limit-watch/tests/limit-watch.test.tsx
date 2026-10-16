@@ -374,12 +374,21 @@ test('адаптив: чем уже полоса, тем короче лимит
     return found
   }
 
-  // Всё помещается: подписи, проценты и время до сброса в одну строку с кнопками.
-  expect(await layout(100)).toEqual({ hint: true, label: true, percent: true, stacked: false })
+  // Десктоп: пропорциональный шрифт, символ ≈ 0.75 ячейки. Так у тебя на широком окне (94 ячейки).
+  expect(await layout(94)).toEqual({ hint: true, label: true, percent: true, stacked: false })
   // Уже: убирается «сброс …».
-  expect(await layout(80)).toEqual({ hint: false, label: true, percent: true, stacked: false })
+  expect(await layout(65)).toEqual({ hint: false, label: true, percent: true, stacked: false })
   // Ещё уже: остаются значки и проценты.
-  expect(await layout(65)).toEqual({ hint: false, label: false, percent: true, stacked: false })
+  expect(await layout(50)).toEqual({ hint: false, label: false, percent: true, stacked: false })
   // Совсем узко: лимиты отдельной строкой, кнопки под ними — ничего не обрезается.
-  expect(await layout(40)).toEqual({ hint: false, label: true, percent: true, stacked: true })
+  expect(await layout(30)).toEqual({ hint: false, label: true, percent: true, stacked: true })
+})
+
+test('адаптив в терминале: символ — целая ячейка, поэтому подробности убираются раньше', async ($, on) => {
+  world(on, { fiveHour: 10 })
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'terminal', ...withWidth(94) })
+  // Та же ширина, что на десктопе с полной раскладкой, но в терминале время сброса уже не влезает.
+  expect(await ui.find({ text: 'сброс 1ч 0м' })).toBeUndefined()
+  expect(await ui.find({ text: 'неделя' })).toBeDefined()
 })
