@@ -44,4 +44,4 @@ claude plugin test .
 
 Translations were not checked by native speakers — corrections are welcome. Icons: [Lucide](https://lucide.dev) (ISC).
 
-License: MIT (see the repository root).
+Author: Egor Maximov ([@setcodes](https://github.com/setcodes)). License: MIT (see the repository root).

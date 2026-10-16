@@ -33,4 +33,4 @@ claude plugin test <mod>
 
 The mods API is early access and may change between Claude Code releases.
 
-License: MIT.
+Author: Egor Maximov ([@setcodes](https://github.com/setcodes)). License: MIT.

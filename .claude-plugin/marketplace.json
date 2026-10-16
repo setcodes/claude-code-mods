@@ -1,7 +1,8 @@
 {
   "name": "claude-code-mods",
   "owner": {
-    "name": "setcodes"
+    "name": "Egor Maximov",
+    "url": "https://github.com/setcodes"
   },
   "metadata": {
     "description": "Mods for Claude Code: small changes to its interface and behaviour"
