@@ -269,6 +269,32 @@ async function applyUsage($: EngineInterface, rateLimits: readonly SessionRateLi
   await maybeSchedule($)
 }
 
+// Ширина строки в ячейках: иероглифы и кана занимают две.
+function cellWidth(text: string): number {
+  let width = 0
+  for (const ch of text) width += /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/.test(ch) ? 2 : 1
+  return width
+}
+
+type LimitItem = { key: string; label: string; value: string; color: Tone; hint?: string }
+
+// Как подробно показывать лимиты: всё; без «сброс …»; только значок и проценты.
+type Detail = 'full' | 'noHint' | 'compact'
+const DETAILS: readonly Detail[] = ['full', 'noHint', 'compact']
+
+// Сколько ячеек займёт ряд лимитов при данной подробности (gap 1 внутри пункта, 3 между пунктами).
+function limitsWidth(items: LimitItem[], note: string | null, detail: Detail, hasIcons: boolean): number {
+  const parts = items.map(item => {
+    const pieces = [item.value]
+    if (detail !== 'compact' || !hasIcons) pieces.unshift(item.label)
+    if (detail === 'full' && item.hint) pieces.push(item.hint)
+    const text = pieces.reduce((sum, piece) => sum + cellWidth(piece), 0) + (pieces.length - 1)
+    return text + (hasIcons ? 3 : 0)
+  })
+  if (note) parts.push(cellWidth(note))
+  return parts.reduce((sum, w) => sum + w, 0) + 3 * Math.max(0, parts.length - 1)
+}
+
 async function isDarwin($: EngineInterface): Promise<boolean> {
   try {
     const { exitCode, stdout } = await $.process.run(['uname', '-s'], { timeoutMs: 3000 })
@@ -368,8 +394,8 @@ export const register: Register = (on, options) => {
     const icon = (name: string) =>
       'Svg' in ui && ICONS[name] ? <ui.Svg source={iconSvg(name)} alt={s.iconAlts[name] ?? name} width={16} height={16} /> : null
 
-    // Одна строка: подписи серым, проценты окрашиваются только от 50%.
-    const items: { key: string; label?: string; value: string; color: Tone; hint?: string }[] = []
+    // Подписи серым, проценты окрашиваются только от 50%.
+    const items: LimitItem[] = []
     for (const l of snap.limits) {
       // Время до сброса показываем всегда, когда сервер его сообщил: по нему планируют работу.
       const hint = l.resetsAt !== null && t > 0 ? s.resetIn(formatIn(l.resetsAt - t, s)) : undefined
@@ -429,28 +455,56 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    return (
-      <Box flexDirection="row" alignItems="center" justifyContent="space-between" width="100%" columnGap={2}>
-        {/* Лимиты в одну строку: при нехватке места обрезается подсказка о сбросе, а не переносится строка. */}
-        <Box flexDirection="row" alignItems="center" flexWrap="nowrap" flexShrink={1} overflow="hidden" columnGap={3}>
-          {items.map(item => (
-            <Box key={item.key} flexDirection="row" alignItems="center" gap={1} flexShrink={1}>
-              {icon(item.key)}
-              {item.label && <Text color="subtle">{item.label}</Text>}
-              <Text color={item.color}>{item.value}</Text>
-              {item.hint && (
-                <Text color="subtle" dimColor wrap="truncate-end">
-                  {item.hint}
-                </Text>
-              )}
-            </Box>
-          ))}
-          {note && (
-            <Box key="note" flexDirection="row">
-              <Text color={r.at !== null ? 'warning' : 'subtle'}>{note}</Text>
-            </Box>
-          )}
+    // Адаптив: берём самую подробную раскладку, которая помещается в одну строку с кнопками.
+    // Не помещается даже самая краткая — кнопки уходят на вторую строку.
+    const hasIcons = 'Svg' in ui
+    const buttonWidth = (label: string) => cellWidth(label) + 4
+    const actionsWidth =
+      (r.at !== null
+        ? buttonWidth(s.resumeNow) + 1 + buttonWidth(s.cancel)
+        : r.offer !== null
+          ? buttonWidth(s.resumeInButton(formatIn(r.offer.at - t, s))) + 1 + buttonWidth(s.noThanks)
+          : 2 + buttonWidth(s.toggleOff)) +
+      (mac ? 1 + buttonWidth(SLEEP_ICON) : 0) +
+      1 +
+      cellWidth(s.hide)
+    const room = e.props.bodyColumns
+    const inline = DETAILS.find(d => limitsWidth(items, note, d, hasIcons) + 2 + actionsWidth <= room)
+    const isStacked = inline === undefined
+    const detail = inline ?? DETAILS.find(d => limitsWidth(items, note, d, hasIcons) <= room) ?? 'compact'
+
+    const limitsRow = (
+      <Box flexDirection="row" alignItems="center" flexWrap={isStacked ? 'wrap' : 'nowrap'} columnGap={3}>
+        {items.map(item => (
+          <Box key={item.key} flexDirection="row" alignItems="center" gap={1}>
+            {icon(item.key)}
+            {(detail !== 'compact' || !hasIcons) && <Text color="subtle">{item.label}</Text>}
+            <Text color={item.color}>{item.value}</Text>
+            {detail === 'full' && item.hint && (
+              <Text color="subtle" dimColor>
+                {item.hint}
+              </Text>
+            )}
+          </Box>
+        ))}
+        {note && (
+          <Box key="note" flexDirection="row">
+            <Text color={r.at !== null ? 'warning' : 'subtle'}>{note}</Text>
+          </Box>
+        )}
+      </Box>
+    )
+
+    return isStacked ? (
+      <Box flexDirection="column" width="100%" rowGap={1}>
+        {limitsRow}
+        <Box flexDirection="row" justifyContent="flex-end" width="100%">
+          {actions}
         </Box>
+      </Box>
+    ) : (
+      <Box flexDirection="row" alignItems="center" justifyContent="space-between" width="100%" columnGap={2}>
+        {limitsRow}
         {actions}
       </Box>
     )

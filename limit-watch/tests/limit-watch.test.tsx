@@ -6,6 +6,10 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 9 }, view: {} },
 } as const
 
+function withWidth(columns: number) {
+  return { ...BAND, props: { ...BAND.props, bodyColumns: columns } } as const
+}
+
 const T0 = Date.parse('2026-10-16T12:00:00Z')
 const HOUR = 3_600_000
 const HEAD = 'Лимит восстановился, продолжай работу с того места, где остановился.'
@@ -302,7 +306,8 @@ test('популярные языки системы получают свой �
 test('язык можно выбрать в настройках: японский', { options: { language: 'ja' } }, async ($, on) => {
   world(on, { fiveHour: 10 })
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'terminal', ...BAND })
+  // Иероглифы вдвое шире латиницы: даём полосе места, чтобы влезли и подсказки о сбросе.
+  const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'terminal', ...withWidth(160) })
   for (const text of ['5時間', '1時間 0分後にリセット', '非表示']) {
     expect(await ui.find({ text }), text).toBeDefined()
   }
@@ -351,4 +356,30 @@ test('продолжение по реальным часам: после «пр
   expect(submitted).toHaveLength(1)
   await clock.advance(HOUR)
   expect(submitted).toHaveLength(1)
+})
+
+test('адаптив: чем уже полоса, тем короче лимиты, а потом кнопки уходят на вторую строку', async ($, on) => {
+  world(on, { fiveHour: 10 })
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+
+  const layout = async (columns: number) => {
+    const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...withWidth(columns) })
+    const found = {
+      hint: (await ui.find({ text: 'сброс 1ч 0м' })) !== undefined,
+      label: (await ui.find({ text: 'неделя' })) !== undefined,
+      percent: (await ui.find({ text: '30%' })) !== undefined,
+      stacked: ((await ui.drawn()) as { props?: { flexDirection?: string } }).props?.flexDirection === 'column',
+    }
+    await ui.unmount()
+    return found
+  }
+
+  // Всё помещается: подписи, проценты и время до сброса в одну строку с кнопками.
+  expect(await layout(100)).toEqual({ hint: true, label: true, percent: true, stacked: false })
+  // Уже: убирается «сброс …».
+  expect(await layout(80)).toEqual({ hint: false, label: true, percent: true, stacked: false })
+  // Ещё уже: остаются значки и проценты.
+  expect(await layout(65)).toEqual({ hint: false, label: false, percent: true, stacked: false })
+  // Совсем узко: лимиты отдельной строкой, кнопки под ними — ничего не обрезается.
+  expect(await layout(40)).toEqual({ hint: false, label: true, percent: true, stacked: true })
 })
