@@ -1,47 +1,71 @@
 # limit-watch
 
-A mod for [Claude Code](https://claude.com/claude-code): a bar above the prompt that shows your usage limits and can pick the work back up when a limit resets.
+A mod for [Claude Code](https://claude.com/claude-code). It shows your usage limits above the prompt and, if a limit stops your work, picks it back up after the limit resets.
 
 ```
-⏱ 5h 67% reset 3h 14m    📅 week 85% reset 15h 54m     ● [Resume after reset] [Zzz]  Hide
+🕓 5h 67% reset 3h 14m    📅 week 85% reset 15h 54m     ● [Resume after reset] [Zzz]  Hide
 ```
-
-- **Limits at a glance** — 5-hour and weekly windows with percent used and time to reset. Grey below 50%, yellow from 50%, red from 80%.
-- **Resume after reset** — when work stops because a window hit 100%, the mod waits for the reset (plus a minute) and sends the session a message that quotes your last request and the agent's last reply, so the work continues where it stopped.
-  - Cancels itself as soon as any other prompt reaches the session — yours or one from elsewhere — so there is no duplicate.
-  - Gives up after 3 automatic resumes in a row that hit the limit again, instead of retrying forever.
-  - Does nothing if the limit was reached by an answer that finished — there is nothing to resume then.
-  - A far reset (the weekly window, more than 6 hours away) is only scheduled after you confirm it.
-  - Checks the wall clock every 30 seconds, so a Mac that slept still resumes right after it wakes.
-- **Zzz — stay awake** (macOS) — runs `caffeinate -i` while this chat is open, so the Mac does not idle-sleep before the reset. A closed lid still sleeps the Mac.
-- **Languages** — English, Russian, Spanish, German, French, Portuguese, Chinese (simplified), Japanese, Ukrainian. Picked from the OS language, or set `language` in the plugin options.
 
 ## Install
 
-In a terminal session of Claude Code with mods support (tested on 2.1.295 and 2.1.301):
+You need Claude Code **2.1.295 or newer** (`claude --version`; update with `claude update`). Then run this in your terminal:
 
-```
-/plugin install limit-watch --marketplace setcodes/claude-code-mods
+```bash
+claude plugin install limit-watch --marketplace setcodes/claude-code-mods
 ```
 
-Answer `y` to add the marketplace, then pick the scope (user scope = every session). The `language` option defaults to `auto` (the OS language); change it later with `/plugin configure limit-watch@limit-watch`. The bar appears in that session at once, and in the desktop app's Code tab for sessions started afterwards.
+Open a new Claude Code session — in the terminal or in the desktop app's **Code** tab — and the bar appears above the prompt. Other ways to install, and how to update or remove the mod: see the [repository README](../README.md#install-a-mod).
+
+## How to use it
+
+**Read your limits.** The bar shows the 5-hour and weekly windows: how much is used and when each one resets. Numbers are grey below 50%, yellow from 50%, red from 80%. On a narrow window the bar shortens itself: first the reset times go, then the labels.
+
+**Let Claude continue after a limit.** Click **Resume after reset** — the dot next to it turns green. From now on, if Claude stops in the middle of work because a limit ran out, the mod waits until the limit resets (plus one minute) and sends the chat a message with your last request and Claude's last reply, so Claude carries on where it stopped. The bar shows `resuming in …` while it waits; **Resume now** and **Cancel** appear next to it.
+
+What it will not do:
+
+- It does nothing if a limit was reached by an answer that finished — there is nothing to continue.
+- It cancels itself if the chat continues some other way, for example when you write a message. No duplicates.
+- If the weekly limit runs out and resets more than 6 hours later, it asks first: **Resume in …** or **No thanks**.
+- It stops after 3 automatic tries in a row that hit the limit again.
+- It only works while the app and this chat stay open.
+
+**Keep the Mac awake (macOS).** Click **Zzz** to stop the Mac from falling asleep while this chat is open, so it is awake when the limit resets. Click it again to allow sleep. Closing the laptop lid still puts the Mac to sleep.
+
+**Hide the bar.** Click **Hide**. To bring it back, type `/limit-watch`.
 
 ## Commands
 
-- `/limit-watch` — hide or show the bar.
-- `/limit-watch test 1m` — check resuming end to end: in one minute the mod sends a real resume message to the chat.
+| Command | What it does |
+| --- | --- |
+| `/limit-watch` | Hide or show the bar. |
+| `/limit-watch test 1m` | Try resuming without waiting for a real limit: in one minute the mod sends a real resume message to the chat. Use `30s`, `5m`, `2h` for other delays. |
 
-## Limits of the mod API
+## Language
 
-- The resume timer lives in the Claude Code process: if the app or chat is closed, nothing resumes.
-- `Zzz` is shown on macOS only.
-- The mod API is early access and may change between Claude Code releases.
+The bar uses your system language: English, Russian, Spanish, German, French, Portuguese, Chinese (simplified), Japanese or Ukrainian; anything else gets English. To pick a language yourself, add this to `~/.claude/settings.json` (inside the outer `{ }`) and start a new session:
 
-## Develop
-
+```json
+"pluginConfigs": {
+  "limit-watch@claude-code-mods": { "options": { "language": "en" } }
+}
 ```
-claude plugin validate .
-claude plugin test .
+
+Use `auto`, `en`, `ru`, `es`, `de`, `fr`, `pt`, `zh`, `ja` or `uk`. If the file already has a `"pluginConfigs"` block, add only the `limit-watch@claude-code-mods` line inside it.
+
+## If something doesn't work
+
+- **`Unknown command: /limit-watch` or no bar** — the session was started before the mod was installed. Start a new one. Check that the mod is on with `claude plugin list`: `limit-watch@claude-code-mods` should show `✔ enabled`.
+- **Still nothing** — check `claude --version` is 2.1.295 or newer.
+- **No `Zzz` button** — it exists only on macOS.
+
+## For developers
+
+From the repository root:
+
+```bash
+claude plugin validate limit-watch
+claude plugin test limit-watch
 ```
 
 Translations were not checked by native speakers — corrections are welcome. Icons: [Lucide](https://lucide.dev) (ISC).
