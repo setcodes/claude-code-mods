@@ -1,0 +1,37 @@
+{
+  "name": "limit-watch",
+  "version": "0.1.0",
+  "description": "Usage-limit bar above the prompt: 5-hour and weekly limits with time to reset, resume after the limit resets, and a stay-awake toggle on macOS",
+  "author": {
+    "name": "setcodes"
+  },
+  "license": "MIT",
+  "keywords": [
+    "limits",
+    "usage",
+    "rate-limit",
+    "resume",
+    "mod"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language / Язык",
+      "description": "auto — по языку системы / follow the OS language",
+      "default": "auto",
+      "options": [
+        "auto",
+        "ru",
+        "en",
+        "es",
+        "de",
+        "fr",
+        "pt",
+        "zh",
+        "ja",
+        "uk"
+      ]
+    }
+  }
+}

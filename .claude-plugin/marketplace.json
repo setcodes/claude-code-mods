@@ -1,0 +1,16 @@
+{
+  "name": "claude-code-mods",
+  "owner": {
+    "name": "setcodes"
+  },
+  "metadata": {
+    "description": "Mods for Claude Code: small changes to its interface and behaviour"
+  },
+  "plugins": [
+    {
+      "name": "limit-watch",
+      "source": "./limit-watch",
+      "description": "Usage-limit bar above the prompt: 5-hour and weekly limits with time to reset, resume after the limit resets, and a stay-awake toggle on macOS"
+    }
+  ]
+}
