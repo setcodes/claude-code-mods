@@ -14,6 +14,11 @@ const T0 = Date.parse('2026-10-16T12:00:00Z')
 const HOUR = 3_600_000
 const HEAD = 'Лимит восстановился, продолжай работу с того места, где остановился.'
 
+// Ход оборвался ошибкой — так выглядит упор в лимит посреди работы.
+function interrupt($: { turn: { complete: (e: { answer: string; durationMs: number; isAborted: boolean; turnId: string; reason: 'error' }) => Promise<unknown> } }) {
+  return $.turn.complete({ answer: '', durationMs: 0, isAborted: false, turnId: 'interrupted', reason: 'error' })
+}
+
 const COMMAND = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as const
 
 // Как выглядит система: язык интерфейса macOS (null — не macOS) и переменные окружения.
@@ -64,6 +69,13 @@ function world(on: On, limits: { fiveHour: number; sevenDay?: number }, os: Os =
     ],
   }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.measure', ($, e) => ({ changed: e.changed }))
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+  const toasts: string[] = []
+  on('ui.toast', ($, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('prompt.submit', ($, e) => {
     submitted.push(e.text)
@@ -73,7 +85,7 @@ function world(on: On, limits: { fiveHour: number; sevenDay?: number }, os: Os =
     const { Box } = $.ui.resolve(e)
     return <Box />
   })
-  return { clock, submitted, awake }
+  return { clock, submitted, awake, toasts }
 }
 
 test('полоса показывает оба лимита со временем до сброса на каждой поверхности', async ($, on) => {
@@ -100,6 +112,7 @@ test('полоса показывает оба лимита со времене�
 test('«Продолжить после сброса» продолжает после сброса окна и цитирует последний запрос и ответ', async ($, on) => {
   const { clock, submitted } = world(on, { fiveHour: 100 })
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await interrupt($)
 
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'terminal', ...BAND })
   await ui.press({ key: 'retry-toggle' })
@@ -121,6 +134,7 @@ test('«Продолжить после сброса» продолжает по
 test('запланированное продолжение можно отменить', async ($, on) => {
   const { clock, submitted } = world(on, { fiveHour: 100 })
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await interrupt($)
 
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'terminal', ...BAND })
   await ui.press({ key: 'retry-toggle' })
@@ -132,6 +146,7 @@ test('запланированное продолжение можно отме�
 test('если человек продолжил сам, запланированное продолжение снимается и дубля нет', async ($, on) => {
   const { clock, submitted } = world(on, { fiveHour: 100 })
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await interrupt($)
 
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
   await ui.press({ key: 'retry-toggle' })
@@ -145,6 +160,7 @@ test('если человек продолжил сам, запланирова�
 test('дальний сброс (неделя) сам не планируется, только по подтверждению', async ($, on) => {
   const { clock, submitted } = world(on, { fiveHour: 10, sevenDay: 100 })
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await interrupt($)
 
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
   await ui.press({ key: 'retry-toggle' })
@@ -161,6 +177,7 @@ test('дальний сброс (неделя) сам не планируетс�
 test('«Продолжить сейчас» до сброса окна не тратит попытку, а переносит её', async ($, on) => {
   const { submitted } = world(on, { fiveHour: 100 })
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await interrupt($)
 
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
   await ui.press({ key: 'retry-toggle' })
@@ -265,6 +282,7 @@ test('язык из настроек мода важнее языка систе
 test('сообщение о продолжении пишется на языке полосы', { options: { language: 'en' } }, async ($, on) => {
   const { clock, submitted } = world(on, { fiveHour: 100 })
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await interrupt($)
 
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
   await ui.press({ key: 'retry-toggle' })
@@ -348,6 +366,7 @@ test('Zzz не показывается не на macOS', async ($, on) => {
 test('продолжение по реальным часам: после «пробуждения» срабатывает в течение 30 секунд', async ($, on) => {
   const { clock, submitted } = world(on, { fiveHour: 100 })
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await interrupt($)
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
   await ui.press({ key: 'retry-toggle' })
 
@@ -391,4 +410,99 @@ test('адаптив в терминале: символ — целая ячей
   // Та же ширина, что на десктопе с полной раскладкой, но в терминале время сброса уже не влезает.
   expect(await ui.find({ text: 'сброс 1ч 0м' })).toBeUndefined()
   expect(await ui.find({ text: 'неделя' })).toBeDefined()
+})
+
+// Сервер снова прислал «исчерпано», но без времени сброса — мод может только пробовать каждые 15 минут.
+function stillExhausted() {
+  return {
+    context: { tokens: 90_000, window: 200_000, percent: 45 },
+    rateLimits: [{ kind: 'five_hour', percentUsed: 100 }],
+    changed: ['rateLimits' as const],
+  }
+}
+
+test('после 3 автопродолжений подряд в исчерпанный лимит мод выключается, а не шлёт сообщения вечно', async ($, on) => {
+  const { clock, submitted } = world(on, { fiveHour: 100 })
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await interrupt($)
+  const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
+  await ui.press({ key: 'retry-toggle' })
+
+  await clock.advance(HOUR + 60_000)
+  expect(submitted).toHaveLength(1)
+  for (const expected of [2, 3]) {
+    await $.session.measure(stillExhausted())
+    await clock.advance(15 * 60_000)
+    expect(submitted).toHaveLength(expected)
+  }
+
+  // Третья попытка тоже упёрлась в лимит: больше не планирует, кнопка выключена.
+  await $.session.measure(stillExhausted())
+  await clock.advance(HOUR)
+  expect(submitted).toHaveLength(3)
+  expect((await ui.find({ type: 'Text', text: '●' }))?.props.color).toBe('subtle')
+})
+
+test('продолжение снимается, если сессию продолжил не человек (например, автопродолжение приложения)', async ($, on) => {
+  const { clock, submitted } = world(on, { fiveHour: 100 })
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await interrupt($)
+  const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
+  await ui.press({ key: 'retry-toggle' })
+
+  await $.prompt.submit({ text: 'continue', wait: false, origin: { kind: 'auto-continuation' } })
+  await clock.advance(2 * HOUR)
+  expect(submitted).toEqual(['continue'])
+})
+
+test('два одновременных срабатывания (таймер и проверка по часам после сна) дают одно продолжение', async ($, on) => {
+  const { submitted } = world(on, { fiveHour: 10 })
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'limit-watch', args: 'test 1m', ...COMMAND })
+
+  const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
+  // Два запуска продолжения в одном такте — как точный таймер и проверка по часам сразу после пробуждения.
+  await Promise.all([ui.press({ key: 'retry-now' }), ui.press({ key: 'retry-now' })])
+  expect(submitted).toHaveLength(1)
+})
+
+test('лимит 100%, но работа не обрывалась — продолжения нет (ответ закончился ровно на границе)', async ($, on) => {
+  const { clock, submitted } = world(on, { fiveHour: 100 })
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
+  await ui.press({ key: 'retry-toggle' })
+  expect(await ui.find({ text: /продолжу через/ })).toBeUndefined()
+
+  await clock.advance(3 * HOUR)
+  expect(submitted).toHaveLength(0)
+
+  // А вот если ход оборвался — продолжение планируется.
+  await interrupt($)
+  expect(await ui.find({ text: /продолжу через/ })).toBeDefined()
+})
+
+test('предложение «сам не продолжу» снимается от сообщения тихо, без тоста «не продолжу»', async ($, on) => {
+  const { toasts } = world(on, { fiveHour: 10, sevenDay: 100 })
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await interrupt($)
+  const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
+  await ui.press({ key: 'retry-toggle' })
+  expect(await ui.find({ text: 'лимит «неделя» исчерпан, сам не продолжу' })).toBeDefined()
+
+  toasts.length = 0
+  await $.prompt.submit({ text: 'новая задача', wait: false, origin: { kind: 'sdk' } })
+  expect(await ui.find({ text: 'лимит «неделя» исчерпан, сам не продолжу' })).toBeUndefined()
+  expect(toasts).toEqual([])
+})
+
+test('запланированное продолжение снимается от сообщения с тостом «сессия уже продолжена»', async ($, on) => {
+  const { toasts } = world(on, { fiveHour: 100 })
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await interrupt($)
+  const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
+  await ui.press({ key: 'retry-toggle' })
+
+  toasts.length = 0
+  await $.prompt.submit({ text: 'продолжай', wait: false, origin: { kind: 'sdk' } })
+  expect(toasts).toEqual(['Не продолжу: сессия уже продолжена'])
 })

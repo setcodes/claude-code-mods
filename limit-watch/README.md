@@ -7,8 +7,10 @@ A mod for [Claude Code](https://claude.com/claude-code): a bar above the prompt 
 ```
 
 - **Limits at a glance** — 5-hour and weekly windows with percent used and time to reset. Grey below 50%, yellow from 50%, red from 80%.
-- **Resume after reset** — when a window hits 100%, the mod waits for the reset (plus a minute) and sends the session a message that quotes your last request and the agent's last reply, so the work continues where it stopped.
-  - Cancels itself if you continue by hand, so there is no duplicate.
+- **Resume after reset** — when work stops because a window hit 100%, the mod waits for the reset (plus a minute) and sends the session a message that quotes your last request and the agent's last reply, so the work continues where it stopped.
+  - Cancels itself as soon as any other prompt reaches the session — yours or one from elsewhere — so there is no duplicate.
+  - Gives up after 3 automatic resumes in a row that hit the limit again, instead of retrying forever.
+  - Does nothing if the limit was reached by an answer that finished — there is nothing to resume then.
   - A far reset (the weekly window, more than 6 hours away) is only scheduled after you confirm it.
   - Checks the wall clock every 30 seconds, so a Mac that slept still resumes right after it wakes.
 - **Zzz — stay awake** (macOS) — runs `caffeinate -i` while this chat is open, so the Mac does not idle-sleep before the reset. A closed lid still sleeps the Mac.
@@ -16,7 +18,7 @@ A mod for [Claude Code](https://claude.com/claude-code): a bar above the prompt 
 
 ## Install
 
-In a terminal session of Claude Code (a version with mods support):
+In a terminal session of Claude Code with mods support (tested on 2.1.295 and 2.1.301):
 
 ```
 /plugin install limit-watch --marketplace setcodes/claude-code-mods

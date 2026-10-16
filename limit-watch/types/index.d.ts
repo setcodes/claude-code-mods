@@ -21,10 +21,14 @@ export type Retry = {
   // Какое окно исчерпано (`five_hour`, `seven_day`) или `test` для /limit-watch test.
   reason: string | null
   offer: RetryOffer | null
+  // Сколько раз подряд мод продолжил сам, а лимит так и не восстановился.
+  attempts: number
+  // Оборвался ли последний ход основной сессии ошибкой (упор в лимит): только тогда есть что продолжать.
+  isInterrupted: boolean
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    'limit-watch': { snapshotV6: Snapshot; isHidden: boolean; retryV2: Retry; now: number; isAwake: boolean; isMac: boolean; lang: 'ru' | 'en' | 'es' | 'de' | 'fr' | 'pt' | 'zh' | 'ja' | 'uk' }
+    'limit-watch': { snapshotV6: Snapshot; isHidden: boolean; retryV4: Retry; now: number; isAwake: boolean; isMac: boolean; lang: 'ru' | 'en' | 'es' | 'de' | 'fr' | 'pt' | 'zh' | 'ja' | 'uk' }
   }
 }

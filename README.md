@@ -8,7 +8,7 @@ Mods for [Claude Code](https://claude.com/claude-code): small changes to its int
 
 ## Install a mod
 
-In a terminal session of Claude Code (2.1.275 or later):
+In a terminal session of Claude Code with mods support (tested on 2.1.295 and 2.1.301):
 
 ```
 /plugin install <mod> --marketplace setcodes/claude-code-mods

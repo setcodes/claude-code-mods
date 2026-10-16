@@ -9,8 +9,8 @@ const EMPTY: Snapshot = { limits: [] }
 
 const snapshot = atom({ plugin: 'limit-watch', key: 'snapshotV6' } as const, EMPTY)
 const isHidden = atom({ plugin: 'limit-watch', key: 'isHidden' } as const, false)
-const IDLE: Retry = { isEnabled: false, at: null, reason: null, offer: null }
-const retry = atom({ plugin: 'limit-watch', key: 'retryV2' } as const, IDLE)
+const IDLE: Retry = { isEnabled: false, at: null, reason: null, offer: null, attempts: 0, isInterrupted: false }
+const retry = atom({ plugin: 'limit-watch', key: 'retryV4' } as const, IDLE)
 // Время последней перерисовки: по нему считаем «через сколько» без вызова часов при отрисовке.
 const now = atom({ plugin: 'limit-watch', key: 'now' } as const, 0)
 // Язык полосы, определённый при старте сессии.
@@ -23,12 +23,13 @@ const isMac = atom({ plugin: 'limit-watch', key: 'isMac' } as const, false)
 const RETRY_GRACE_MS = 60_000
 // Если сервер не сообщил время сброса, пробуем снова через этот интервал.
 const RETRY_FALLBACK_MS = 15 * 60_000
-// Дольше этого ждать сам не стану: через сутки контекст устареет. Дальний сброс — только по подтверждению.
+// Дольше этого ждать сам не стану: за полдня и больше контекст устаревает. Дальний сброс — только по подтверждению.
 const AUTO_WAIT_MAX_MS = 6 * 3_600_000
+// Сколько раз подряд продолжать автоматически, если лимит после продолжения всё ещё исчерпан.
+// Счётчик обнуляется, как только ход завершается ответом.
+const MAX_AUTO_RESUMES = 3
 // Сколько символов запроса и ответа цитировать в сообщении о продолжении.
 const QUOTE_MAX_CHARS = 400
-// Откуда пришёл промпт, если его отправил сам человек (терминал, десктоп через SDK, телефон).
-const PERSON_ORIGINS = new Set(['composer', 'sdk', 'bridge', 'unclassified'])
 
 function toLimit(r: SessionRateLimit): Limit {
   const resetsAt = r.resetsAt ? Date.parse(r.resetsAt) : NaN
@@ -199,10 +200,24 @@ function stillClosed(limits: Limit[], clockNow: number): Limit | undefined {
   return limits.filter(l => l.percent >= 100 && l.resetsAt !== null && l.resetsAt > clockNow).sort((a, b) => (b.resetsAt ?? 0) - (a.resetsAt ?? 0))[0]
 }
 
+// Идёт ли сейчас продолжение. После сна Mac точный таймер и проверка по часам срабатывают почти разом:
+// оба успели бы прочитать «запланировано» до того, как первый его снимет, и ушло бы два сообщения.
+// Флаг ставится синхронно, до первого await, поэтому второй вызов сразу выходит.
+let isFiring = false
+
 async function fire($: EngineInterface) {
+  if (isFiring) return
+  isFiring = true
+  try {
+    await fireOnce($)
+  } finally {
+    isFiring = false
+  }
+}
+
+async function fireOnce($: EngineInterface) {
   cancelTimer()
   const [r, snap, clockNow, s] = await Promise.all([read($, retry), read($, snapshot), $.clock.now(), strings($)])
-  // Срабатывают и точный таймер, и проверка по часам: второй вызов застаёт ретрай уже снятым.
   if (r.at === null) return
 
   const closed = r.reason === 'test' ? undefined : stillClosed(snap.limits, clockNow)
@@ -214,15 +229,31 @@ async function fire($: EngineInterface) {
     return
   }
 
-  await update($, retry, x => ({ ...x, at: null, reason: null, offer: null }))
+  await update($, retry, x => ({
+    ...x,
+    at: null,
+    reason: null,
+    offer: null,
+    attempts: r.reason === 'test' ? x.attempts : x.attempts + 1,
+  }))
   $.ui.toast(s.toastResumed)
   await $.prompt.submit({ text: await resumePrompt($) })
 }
 
+// Продолжение из таймера или кнопки: ошибку никто не ждёт, поэтому пишем её в debug-лог, а не теряем.
+function fireSafely($: EngineInterface) {
+  fire($).catch(error => $.ui.log(`limit-watch: resume failed: ${String(error)}`, { to: 'debug' }))
+}
+
 function arm($: EngineInterface, at: number, clockNow: number) {
   cancelTimer()
-  timer = $.clock.after(Math.max(0, at - clockNow), () => void fire($))
-  ticker = $.clock.every(WALL_CHECK_MS, () => void $.clock.now().then(t => (t >= at ? fire($) : undefined)))
+  timer = $.clock.after(Math.max(0, at - clockNow), () => fireSafely($))
+  ticker = $.clock.every(WALL_CHECK_MS, () => {
+    $.clock
+      .now()
+      .then(t => (t >= at ? fireSafely($) : undefined))
+      .catch(error => $.ui.log(`limit-watch: clock check failed: ${String(error)}`, { to: 'debug' }))
+  })
 }
 
 async function schedule($: EngineInterface, at: number, reason: string) {
@@ -236,7 +267,8 @@ async function cancelRetry($: EngineInterface) {
   await update($, retry, x => ({ ...x, at: null, reason: null, offer: null }))
 }
 
-// Ставит ретрай, если он включён, лимит исчерпан и ничего ещё не запланировано или не предложено.
+// Ставит ретрай, если он включён, лимит исчерпан, работа на нём оборвалась и ничего ещё не запланировано.
+// 100% бывает и после успешного ответа ровно на границе лимита — тогда продолжать нечего.
 async function maybeSchedule($: EngineInterface) {
   const [r, snap, clockNow, s] = await Promise.all([read($, retry), read($, snapshot), $.clock.now(), strings($)])
   const hit = exhausted(snap.limits)
@@ -245,7 +277,14 @@ async function maybeSchedule($: EngineInterface) {
     await update($, retry, x => ({ ...x, offer: null }))
     return
   }
-  if (!r.isEnabled || r.at !== null || r.offer !== null || !hit) return
+  if (!r.isEnabled || !r.isInterrupted || r.at !== null || r.offer !== null || !hit) return
+
+  // Продолжали уже несколько раз подряд, а лимит всё ещё исчерпан: выключаемся, чтобы не слать сообщения без конца.
+  if (r.attempts >= MAX_AUTO_RESUMES) {
+    await update($, retry, x => ({ ...x, isEnabled: false, attempts: 0 }))
+    $.ui.toast(s.toastGaveUp(MAX_AUTO_RESUMES))
+    return
+  }
 
   const at = hit.resetsAt !== null ? hit.resetsAt + RETRY_GRACE_MS : clockNow + RETRY_FALLBACK_MS
   if (at - clockNow > AUTO_WAIT_MAX_MS) {
@@ -258,7 +297,7 @@ async function maybeSchedule($: EngineInterface) {
 }
 
 async function toggleRetry($: EngineInterface) {
-  await update($, retry, x => ({ ...x, isEnabled: !x.isEnabled }))
+  await update($, retry, x => ({ ...x, isEnabled: !x.isEnabled, attempts: 0 }))
   await maybeSchedule($)
 }
 
@@ -355,12 +394,17 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    // Человек продолжил сам — запланированный ретрай отправил бы дубль.
-    if (PERSON_ORIGINS.has(e.origin.kind)) {
+    // Сессию продолжил кто-то другой — человек, автопродолжение десктопа, уведомление: наше продолжение
+    // было бы дублем. Своё сообщение мод отправляет, уже сняв план, поэтому его не трогаем.
+    const isOwn = e.origin.kind === 'plugin' && e.origin.name === $.plugin.name
+    if (!isOwn) {
       const r = await read($, retry)
-      if (r.at !== null || r.offer !== null) {
+      if (r.at !== null) {
         await cancelRetry($)
         $.ui.toast((await strings($)).toastManual)
+      } else if (r.offer !== null) {
+        // Предложение и так не продолжило бы само: снимаем молча, тост «не продолжу» тут лишний.
+        await cancelRetry($)
       }
     }
     return next(e)
@@ -373,6 +417,16 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
+    if (e.agentId === undefined) {
+      // Ход основной сессии: ответ — работа идёт, обрыв — есть что продолжать после сброса.
+      const r = await read($, retry)
+      if (e.reason === 'answer' && (r.attempts > 0 || r.isInterrupted)) {
+        await update($, retry, x => ({ ...x, attempts: 0, isInterrupted: false }))
+      }
+      if (e.reason === 'error' && !r.isInterrupted) {
+        await update($, retry, x => ({ ...x, isInterrupted: true }))
+      }
+    }
     // После ошибки (в том числе исчерпанного лимита) перечитываем лимиты сразу, не дожидаясь session.measure.
     if (e.reason === 'error') {
       const usage = await $.session.usage()
@@ -422,7 +476,7 @@ export const register: Register = (on, options) => {
           <Box flexDirection="row" alignItems="center" gap={1}>
             <Button key="retry-now" label={s.resumeNow} onPress={() => {
               cancelTimer()
-              void fire($)
+              fireSafely($)
             }} />
             <Button key="retry-cancel" label={s.cancel} dimColor onPress={() => void cancelRetry($)} />
           </Box>
