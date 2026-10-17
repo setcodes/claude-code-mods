@@ -18,9 +18,9 @@ Open a new Claude Code session — in the terminal or in the desktop app's **Cod
 
 ## How to use it
 
-**Read your limits.** The bar shows the 5-hour and weekly windows: how much is used and when each one resets. Numbers are grey below 50%, yellow from 50%, red from 80%. On a narrow window the bar shortens itself: first the reset times go, then the labels.
+**Read your limits.** The bar shows the 5-hour and weekly windows: how much is used and when each one resets. Numbers are grey below 50%, yellow from 50%, red from 80%. On a narrow window — say, with a side panel open — the bar keeps just the icons and percentages; if even that doesn't fit, the buttons move to a second row.
 
-**Let Claude continue after a limit.** Click **Resume after reset** — the dot next to it turns green. From now on, if Claude stops in the middle of work because a limit ran out, the mod waits until the limit resets (plus one minute) and sends the chat a message with your last request and Claude's last reply, so Claude carries on where it stopped. The bar shows `resuming in …` while it waits; **Resume now** and **Cancel** appear next to it.
+**Let Claude continue after a limit.** Click **Resume after reset** — the dot next to it turns green. From now on, if Claude stops in the middle of work because a limit ran out, the mod waits until the limit resets (plus one minute) and sends the chat a message with your last request and Claude's last reply, so Claude carries on where it stopped. While it waits, **Resume now** and **Cancel** replace the button; the reset times next to the limits show when it will continue.
 
 What it will not do:
 

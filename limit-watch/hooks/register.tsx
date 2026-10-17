@@ -315,19 +315,19 @@ function cellWidth(text: string): number {
   return width
 }
 
-// Десктоп, VS Code и телефон рисуют пропорциональным шрифтом: текст там занимает примерно
-// три четверти ячейки на символ (замерено: полоса в 94 ячейки вмещает полную раскладку, в ~70 — нет).
+// Десктоп, VS Code и телефон рисуют пропорциональным шрифтом: подпись там уже, чем символ на ячейку.
+// Подобрано по скриншотам с запасом: в 94 ячейки полная раскладка помещается, в ~70 (открыта боковая панель) — нет.
 // В терминале символ — ровно ячейка.
-const PROPORTIONAL_SCALE = 0.75
+const PROPORTIONAL_SCALE = 0.85
 
 type LimitItem = { key: string; label: string; value: string; color: Tone; hint?: string }
 
-// Как подробно показывать лимиты: всё; без «сброс …»; только значок и проценты.
-type Detail = 'full' | 'noHint' | 'compact'
-const DETAILS: readonly Detail[] = ['full', 'noHint', 'compact']
+// Как подробно показывать лимиты: всё или только значок и проценты (в терминале без значков — подпись и проценты).
+type Detail = 'full' | 'compact'
+const DETAILS: readonly Detail[] = ['full', 'compact']
 
 // Сколько ячеек займёт ряд лимитов при данной подробности (gap 1 внутри пункта, 3 между пунктами).
-function limitsWidth(items: LimitItem[], note: string | null, detail: Detail, hasIcons: boolean): number {
+function limitsWidth(items: LimitItem[], detail: Detail, hasIcons: boolean): number {
   const parts = items.map(item => {
     const pieces = [item.value]
     if (detail !== 'compact' || !hasIcons) pieces.unshift(item.label)
@@ -335,7 +335,6 @@ function limitsWidth(items: LimitItem[], note: string | null, detail: Detail, ha
     const text = pieces.reduce((sum, piece) => sum + cellWidth(piece), 0) + (pieces.length - 1)
     return text + (hasIcons ? 3 : 0)
   })
-  if (note) parts.push(cellWidth(note))
   return parts.reduce((sum, w) => sum + w, 0) + 3 * Math.max(0, parts.length - 1)
 }
 
@@ -449,9 +448,10 @@ export const register: Register = (on, options) => {
     ])
     const ui = $.ui.resolve(e)
     const { Box, Button, Text } = ui
-    // В терминале Svg нет: там пункты остаются без иконок.
+    // Иконки рисуют только десктоп, VS Code и телефон: терминал Svg не показывает, там остаются подписи.
+    const hasIcons = e.surface !== 'terminal' && 'Svg' in ui
     const icon = (name: string) =>
-      'Svg' in ui && ICONS[name] ? <ui.Svg source={iconSvg(name)} alt={s.iconAlts[name] ?? name} width={16} height={16} /> : null
+      hasIcons && 'Svg' in ui && ICONS[name] ? <ui.Svg source={iconSvg(name)} alt={s.iconAlts[name] ?? name} width={16} height={16} /> : null
 
     // Подписи серым, проценты окрашиваются только от 50%.
     const items: LimitItem[] = []
@@ -460,15 +460,6 @@ export const register: Register = (on, options) => {
       const hint = l.resetsAt !== null && t > 0 ? s.resetIn(formatIn(l.resetsAt - t, s)) : undefined
       items.push({ key: l.kind, label: labelOf(l.kind, s), value: `${l.percent}%`, color: tone(l.percent), hint })
     }
-
-    const note =
-      r.at !== null
-        ? r.reason === 'test'
-          ? s.testResumingIn(formatIn(r.at - t, s))
-          : s.resumingIn(formatIn(r.at - t, s))
-        : r.offer !== null
-          ? s.offerNote(labelOf(r.offer.kind, s))
-          : null
 
     const actions = (
       <Box flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
@@ -516,28 +507,28 @@ export const register: Register = (on, options) => {
 
     // Адаптив: берём самую подробную раскладку, которая помещается в одну строку с кнопками.
     // Не помещается даже самая краткая — кнопки уходят на вторую строку.
-    const hasIcons = 'Svg' in ui
-    const buttonWidth = (label: string) => cellWidth(label) + 4
-    const actionsWidth =
-      (r.at !== null
-        ? buttonWidth(s.resumeNow) + 1 + buttonWidth(s.cancel)
-        : r.offer !== null
-          ? buttonWidth(s.resumeInButton(formatIn(r.offer.at - t, s))) + 1 + buttonWidth(s.noThanks)
-          : 2 + buttonWidth(s.toggleOff)) +
-      (mac ? 1 + buttonWidth(SLEEP_ICON) : 0) +
-      1 +
-      cellWidth(s.hide)
+    // Текст подписей на десктопе уже, чем ячейка (пропорциональный шрифт), а рамка кнопки — нет:
+    // поэтому подписи масштабируем, а поля кнопок (по 4 ячейки) и промежутки считаем как есть.
     const scale = e.surface === 'terminal' ? 1 : PROPORTIONAL_SCALE
+    const labels =
+      r.at !== null
+        ? [s.resumeNow, s.cancel]
+        : r.offer !== null
+          ? [s.resumeInButton(formatIn(r.offer.at - t, s)), s.noThanks]
+          : [s.toggleOff]
+    const buttons = [...labels, ...(mac ? [SLEEP_ICON] : [])]
+    const actionsText = buttons.reduce((sum, label) => sum + cellWidth(label), 0) + cellWidth(s.hide)
+    const actionsChrome = buttons.length * 4 + buttons.length + (r.at === null && r.offer === null ? 2 : 0)
     const room = e.props.bodyColumns
-    const fits = (width: number) => width * scale <= room
-    const inline = DETAILS.find(d => fits(limitsWidth(items, note, d, hasIcons) + 2 + actionsWidth))
+    const fits = (text: number, chrome: number) => text * scale + chrome <= room
+    const inline = DETAILS.find(d => fits(limitsWidth(items, d, hasIcons) + actionsText, 2 + actionsChrome))
     const isStacked = inline === undefined
-    const detail = inline ?? DETAILS.find(d => fits(limitsWidth(items, note, d, hasIcons))) ?? 'compact'
+    const detail = inline ?? DETAILS.find(d => fits(limitsWidth(items, d, hasIcons), 0)) ?? 'compact'
 
     const limitsRow = (
       <Box flexDirection="row" alignItems="center" flexWrap={isStacked ? 'wrap' : 'nowrap'} columnGap={3}>
         {items.map(item => (
-          <Box key={item.key} flexDirection="row" alignItems="center" gap={1}>
+          <Box key={item.key} flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
             {icon(item.key)}
             {(detail !== 'compact' || !hasIcons) && <Text color="subtle">{item.label}</Text>}
             <Text color={item.color}>{item.value}</Text>
@@ -548,11 +539,6 @@ export const register: Register = (on, options) => {
             )}
           </Box>
         ))}
-        {note && (
-          <Box key="note" flexDirection="row">
-            <Text color={r.at !== null ? 'warning' : 'subtle'}>{note}</Text>
-          </Box>
-        )}
       </Box>
     )
 

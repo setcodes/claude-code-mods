@@ -116,7 +116,7 @@ test('«Продолжить после сброса» продолжает по
 
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'terminal', ...BAND })
   await ui.press({ key: 'retry-toggle' })
-  expect(await ui.find({ text: 'продолжу через 1ч 1м' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'retry-now' })).toBeDefined()
 
   await clock.advance(HOUR)
   expect(submitted).toHaveLength(0)
@@ -151,7 +151,7 @@ test('если человек продолжил сам, запланирова�
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
   await ui.press({ key: 'retry-toggle' })
   await $.prompt.submit({ text: 'продолжай', wait: false, origin: { kind: 'sdk' } })
-  expect(await ui.find({ text: /продолжу через/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'retry-now' })).toBeUndefined()
 
   await clock.advance(2 * HOUR)
   expect(submitted).toEqual(['продолжай'])
@@ -164,12 +164,12 @@ test('дальний сброс (неделя) сам не планируетс�
 
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
   await ui.press({ key: 'retry-toggle' })
-  expect(await ui.find({ text: 'лимит «неделя» исчерпан, сам не продолжу' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'retry-confirm' })).toBeDefined()
   await clock.advance(10 * HOUR)
   expect(submitted).toHaveLength(0)
 
   await ui.press({ key: 'retry-confirm' })
-  expect(await ui.find({ text: 'продолжу через 1д 19ч' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'retry-now' })).toBeDefined()
   await clock.advance(44 * HOUR)
   expect(submitted).toHaveLength(1)
 })
@@ -183,7 +183,7 @@ test('«Продолжить сейчас» до сброса окна не тр
   await ui.press({ key: 'retry-toggle' })
   await ui.press({ key: 'retry-now' })
   expect(submitted).toHaveLength(0)
-  expect(await ui.find({ text: 'продолжу через 1ч 1м' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'retry-now' })).toBeDefined()
 })
 
 test('/limit-watch test отправляет настоящее сообщение через заданное время', async ($, on) => {
@@ -194,7 +194,7 @@ test('/limit-watch test отправляет настоящее сообщени
   expect(answer.text).toBe('Тест: продолжу через 2м. Отменить — кнопкой на полосе.')
 
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
-  expect(await ui.find({ text: 'тест: продолжу через 2м' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'retry-now' })).toBeDefined()
 
   await clock.advance(2 * 60_000)
   expect(submitted).toHaveLength(1)
@@ -286,7 +286,7 @@ test('сообщение о продолжении пишется на язык�
 
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
   await ui.press({ key: 'retry-toggle' })
-  expect(await ui.find({ text: 'resuming in 1h 1m' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'retry-now' })).toBeDefined()
 
   await clock.advance(HOUR + 60_000)
   expect(submitted).toEqual([
@@ -377,7 +377,7 @@ test('продолжение по реальным часам: после «пр
   expect(submitted).toHaveLength(1)
 })
 
-test('адаптив: чем уже полоса, тем короче лимиты, а потом кнопки уходят на вторую строку', async ($, on) => {
+test('адаптив: на узкой полосе остаются значки и проценты, а потом кнопки уходят на вторую строку', async ($, on) => {
   world(on, { fiveHour: 10 })
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
 
@@ -393,23 +393,27 @@ test('адаптив: чем уже полоса, тем короче лимит
     return found
   }
 
-  // Десктоп: пропорциональный шрифт, символ ≈ 0.75 ячейки. Так у тебя на широком окне (94 ячейки).
+  // Десктоп, широкое окно (94 ячейки): подписи, проценты и время до сброса в одну строку с кнопками.
   expect(await layout(94)).toEqual({ hint: true, label: true, percent: true, stacked: false })
-  // Уже: убирается «сброс …».
-  expect(await layout(65)).toEqual({ hint: false, label: true, percent: true, stacked: false })
-  // Ещё уже: остаются значки и проценты.
-  expect(await layout(50)).toEqual({ hint: false, label: false, percent: true, stacked: false })
-  // Совсем узко: лимиты отдельной строкой, кнопки под ними — ничего не обрезается.
-  expect(await layout(30)).toEqual({ hint: false, label: true, percent: true, stacked: true })
+  // Уже — например, справа открыта панель: остаются только значки и проценты.
+  expect(await layout(65)).toEqual({ hint: false, label: false, percent: true, stacked: false })
+  // Совсем узко: лимиты отдельной строкой, кнопки под ними — ничего не обрезается и не переносится внутри.
+  expect(await layout(30)).toEqual({ hint: false, label: false, percent: true, stacked: true })
 })
 
-test('адаптив в терминале: символ — целая ячейка, поэтому подробности убираются раньше', async ($, on) => {
+test('адаптив в терминале: без значков узкая полоса оставляет подписи, иначе непонятно, где какой лимит', async ($, on) => {
   world(on, { fiveHour: 10 })
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'terminal', ...withWidth(94) })
-  // Та же ширина, что на десктопе с полной раскладкой, но в терминале время сброса уже не влезает.
-  expect(await ui.find({ text: 'сброс 1ч 0м' })).toBeUndefined()
-  expect(await ui.find({ text: 'неделя' })).toBeDefined()
+
+  const wide = await $.ui.mount({ plugin: 'limit-watch', surface: 'terminal', ...withWidth(100) })
+  expect(await wide.find({ text: 'сброс 1ч 0м' })).toBeDefined()
+  await wide.unmount()
+
+  // Тесно: время до сброса убирается, подписи «5ч» и «неделя» остаются — значков в терминале нет.
+  const narrow = await $.ui.mount({ plugin: 'limit-watch', surface: 'terminal', ...withWidth(80) })
+  expect(await narrow.find({ text: 'сброс 1ч 0м' })).toBeUndefined()
+  expect(await narrow.find({ text: 'неделя' })).toBeDefined()
+  expect(await narrow.find({ text: '30%' })).toBeDefined()
 })
 
 // Сервер снова прислал «исчерпано», но без времени сброса — мод может только пробовать каждые 15 минут.
@@ -471,14 +475,14 @@ test('лимит 100%, но работа не обрывалась — прод�
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
   await ui.press({ key: 'retry-toggle' })
-  expect(await ui.find({ text: /продолжу через/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'retry-now' })).toBeUndefined()
 
   await clock.advance(3 * HOUR)
   expect(submitted).toHaveLength(0)
 
   // А вот если ход оборвался — продолжение планируется.
   await interrupt($)
-  expect(await ui.find({ text: /продолжу через/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'retry-now' })).toBeDefined()
 })
 
 test('предложение «сам не продолжу» снимается от сообщения тихо, без тоста «не продолжу»', async ($, on) => {
@@ -487,11 +491,11 @@ test('предложение «сам не продолжу» снимается
   await interrupt($)
   const ui = await $.ui.mount({ plugin: 'limit-watch', surface: 'desktop', ...BAND })
   await ui.press({ key: 'retry-toggle' })
-  expect(await ui.find({ text: 'лимит «неделя» исчерпан, сам не продолжу' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'retry-confirm' })).toBeDefined()
 
   toasts.length = 0
   await $.prompt.submit({ text: 'новая задача', wait: false, origin: { kind: 'sdk' } })
-  expect(await ui.find({ text: 'лимит «неделя» исчерпан, сам не продолжу' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'retry-confirm' })).toBeUndefined()
   expect(toasts).toEqual([])
 })
 
